@@ -410,21 +410,7 @@ class MycroftSkill:
         """
         return False
 
-    def __get_response(self):
-        """Helper to get a response from the user
-
-        NOTE:  There is a race condition here.  There is a small amount of
-        time between the end of the device speaking and the converse method
-        being overridden in this method.  If an utterance is injected during
-        this time, the wrong converse method is executed.  The condition is
-        hidden during normal use due to the amount of time it takes a user
-        to speak a response. The condition is revealed when an automated
-        process injects an utterance quicker than this method can flip the
-        converse methods.
-
-        Returns:
-            str: user's response or None on a timeout
-        """
+    def __create_response_handler(self):
         event = Event()
 
         def converse(utterances, lang=None):
@@ -437,6 +423,15 @@ class MycroftSkill:
         converse.response = None
         default_converse = self.converse
         self.converse = converse
+        return (default_converse, event, converse)
+
+    def __get_response(self, default_converse, event, converse):
+        """Helper to get a reponse from the user
+
+        Returns:
+            str: user's response or None on a timeout
+        """
+        self.make_active()
         event.wait(15)  # 10 for listener, 5 for SST, then timeout
         self.converse = default_converse
         return converse.response
@@ -496,6 +491,8 @@ class MycroftSkill:
         on_fail_fn = on_fail if callable(on_fail) else on_fail_default
         validator = validator or validator_default
 
+        # Setup the converse handler
+        response_handler = self.__create_response_handler()
         # Speak query and wait for user response
         dialog_exists = self.dialog_renderer.render(dialog, data)
         if dialog_exists:
@@ -503,9 +500,10 @@ class MycroftSkill:
         else:
             self.bus.emit(Message('mycroft.mic.listen'))
         return self._wait_response(is_cancel, validator, on_fail_fn,
-                                   num_retries)
+                                   num_retries, response_handler)
 
-    def _wait_response(self, is_cancel, validator, on_fail, num_retries):
+    def _wait_response(self, is_cancel, validator, on_fail, num_retries,
+                       responder):
         """Loop until a valid response is received from the user or the retry
         limit is reached.
 
@@ -517,7 +515,7 @@ class MycroftSkill:
         """
         num_fails = 0
         while True:
-            response = self.__get_response()
+            response = self.__get_response(*responder)
 
             if response is None:
                 # if nothing said, prompt one more time
@@ -535,6 +533,8 @@ class MycroftSkill:
             num_fails += 1
             if 0 < num_retries < num_fails:
                 return None
+            else:
+                responder = self.__create_response_handler()
 
             line = on_fail(response)
             if line:
