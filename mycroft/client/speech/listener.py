@@ -21,6 +21,7 @@ from requests import RequestException
 from requests.exceptions import ConnectionError
 
 import requests
+import base64
 
 from mycroft import dialog
 from mycroft.client.speech.hotword_factory import HotWordFactory
@@ -49,6 +50,8 @@ STREAM_STOP = 3
 TOT_STORE_IP = "127.0.0.1"
 TOT_STORE_PORT = 9020
 
+FILEPATH_KEY = "filePath";
+FILECONTENT_KEY = "fileContent";
 
 class AudioStreamHandler(object):
     def __init__(self, queue):
@@ -69,8 +72,10 @@ class TOTPostWorker(Thread):
         self.data = data
 
     def run(self):
+        data_b64 = base64.b64encode(self.data)
+
         r = requests.post(f"http://{TOT_STORE_IP}:{TOT_STORE_PORT}/store",
-         json={FILEPATH_KEY: sys.argv[1]})
+         json={FILECONTENT_KEY: data_b64})
 
 
 class AudioProducer(Thread):
@@ -102,7 +107,8 @@ class AudioProducer(Thread):
 
                         # TOT integration:
                         LOG.debug("TOT integration: POST to store")
-
+                        threadStore = TOTPostWorker(audio)
+                        threadStore.start()
                     else:
                         LOG.warning("Audio contains no data.")
                 except IOError as e:
