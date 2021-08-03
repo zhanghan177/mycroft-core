@@ -20,6 +20,8 @@ from pyee import EventEmitter
 from requests import RequestException
 from requests.exceptions import ConnectionError
 
+import requests
+
 from mycroft import dialog
 from mycroft.client.speech.hotword_factory import HotWordFactory
 from mycroft.client.speech.mic import MutableMicrophone, ResponsiveRecognizer
@@ -44,6 +46,10 @@ STREAM_DATA = 2
 STREAM_STOP = 3
 
 
+TOT_STORE_IP = "127.0.0.1"
+TOT_STORE_PORT = 9020
+
+
 class AudioStreamHandler(object):
     def __init__(self, queue):
         self.queue = queue
@@ -56,6 +62,15 @@ class AudioStreamHandler(object):
 
     def stream_stop(self):
         self.queue.put((STREAM_STOP, None))
+
+
+class TOTPostWorker(Thread):
+    def __init__(self, data):
+        self.data = data
+
+    def run(self):
+        r = requests.post(f"http://{TOT_STORE_IP}:{TOT_STORE_PORT}/store",
+         json={FILEPATH_KEY: sys.argv[1]})
 
 
 class AudioProducer(Thread):
@@ -84,6 +99,10 @@ class AudioProducer(Thread):
                                                    self.stream_handler)
                     if audio is not None:
                         self.queue.put((AUDIO_DATA, audio))
+
+                        # TOT integration:
+                        LOG.debug("TOT integration: POST to store")
+
                     else:
                         LOG.warning("Audio contains no data.")
                 except IOError as e:
