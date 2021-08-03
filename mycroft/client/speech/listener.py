@@ -69,6 +69,7 @@ class AudioStreamHandler(object):
 
 class TOTPostWorker(Thread):
     def __init__(self, data):
+        Thread.__init__(self)
         self.data = data
 
     def run(self):
