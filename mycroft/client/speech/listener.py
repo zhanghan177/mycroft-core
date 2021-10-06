@@ -20,8 +20,10 @@ from pyee import EventEmitter
 from requests import RequestException
 from requests.exceptions import ConnectionError
 
+from pathlib import Path
 import requests
 import base64
+import tempfile
 
 from mycroft import dialog
 from mycroft.client.speech.hotword_factory import HotWordFactory
@@ -50,8 +52,15 @@ STREAM_STOP = 3
 TOT_STORE_IP = "127.0.0.1"
 TOT_STORE_PORT = 9020
 
-FILEPATH_KEY = "filePath";
-FILECONTENT_KEY = "fileContent";
+EVAL_FILE = "eval-mycroft.csv"
+
+FILEPATH_KEY = "filePath"
+FILECONTENT_KEY = "fileContent"
+
+
+def current_milli_time():
+    return round(time.time() * 1000)
+
 
 class AudioStreamHandler(object):
     def __init__(self, queue):
@@ -73,10 +82,42 @@ class TOTPostWorker(Thread):
         self.data = data
 
     def run(self):
-        data_b64 = base64.b64encode(self.data)
+        LOG.debug("TOT integration: POST worker execute")
 
+        timer_start = current_milli_time()
+        LOG.debug("TOT integration: before encoding")
+
+        LOG.debug(type(self.data))
+
+        data_b64 = base64.b64encode(self.data.get_raw_data())
+        LOG.debug(f"TOT integration: after encoding, size: {len(data_b64)}")
+
+        fp = tempfile.NamedTemporaryFile(delete=False)
+        fp.write(data_b64)
+        fp.close()
+
+        LOG.debug(f"TOT integration: prepare to send {fp.name}")
+
+        # r = requests.post(f"http://{TOT_STORE_IP}:{TOT_STORE_PORT}/store", json={FILECONTENT_KEY: data_b64})
         r = requests.post(f"http://{TOT_STORE_IP}:{TOT_STORE_PORT}/store",
-         json={FILECONTENT_KEY: data_b64})
+            json={FILEPATH_KEY: fp.name})
+    
+
+        LOG.debug("TOT integration: after upload/store")
+
+
+        timer_stop = current_milli_time()
+        time_delta = timer_stop - timer_start
+
+        eval_res = Path(Path.home(), EVAL_FILE)
+        eval_res = eval_res.resolve()
+
+        LOG.debug("TOT integration: prepare to write result")
+
+        with eval_res.open('a') as f:
+            f.write(f"{timer_start}, {len(data_b64)}, {time_delta}\n")
+
+
 
 
 class AudioProducer(Thread):
@@ -402,7 +443,7 @@ class RecognizerLoop(EventEmitter):
             stream_handler = AudioStreamHandler(queue)
         self.producer = AudioProducer(self.state, queue, self.microphone,
                                       self.responsive_recognizer, self,
-                                      stream_handler)
+                                    stream_handler)
         self.producer.start()
         self.consumer = AudioConsumer(self.state, queue, self,
                                       stt, self.wakeup_recognizer,
